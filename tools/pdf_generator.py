@@ -11,14 +11,14 @@ from reportlab.lib import colors
 router = APIRouter()
 
 class PDFRequest(BaseModel):
-    font: str
-    font_size: int
+    #font: str
+    #font_size: int
     margin: int
     page_number: bool = True
     orientation: str
     page_size: str = "A4"
     filename: str = "test.pdf"  # default filename
-
+    content:str
 
 
 def generate_pdf(data: PDFRequest) -> bytes:
@@ -26,9 +26,9 @@ def generate_pdf(data: PDFRequest) -> bytes:
     if data.page_size.upper() == "LETTER":
         base_size = LETTER
     else:
-        base_size = A4  # default is A4
+        base_size = A4  # default A4
 
-    # Apply orientation
+    # orientation
     if data.orientation.lower() == "landscape":
         pagesize = landscape(base_size)
     else:
@@ -51,47 +51,11 @@ def generate_pdf(data: PDFRequest) -> bytes:
     # Base styles
     styles = getSampleStyleSheet()
 
-    # Custom styles
-    heading_style = ParagraphStyle(
-        "Heading",
-        parent=styles["Heading1"],
-        fontName=data.font,
-        fontSize=20,
-        textColor=colors.darkblue,
-        spaceAfter=12,
-    )
-
-    subheading_style = ParagraphStyle(
-        "Subheading",
-        parent=styles["Heading2"],
-        fontName=data.font,
-        fontSize=16,
-        textColor=colors.darkgreen,
-        spaceAfter=10,
-    )
-
-    body_style = ParagraphStyle(
-        "Body",
-        parent=styles["Normal"],
-        fontName="Times-Roman",
-        fontSize=data.font_size,
-        leading=16,  # line spacing
-    )
-
+   
     # Build story
-    story = [
-        Paragraph("Main Heading Example", heading_style),
-        Paragraph("This is a subheading example", subheading_style),
-        Paragraph(
-            """Lorem ipsum dolor sit amet. Sed Quis dolore non consectetur ipsam aut optio quibusdam.
-            Ea suscipit impedit rem eveniet explicabo sit facere repudiandae cum distinctio alias
-            ut reiciendis nobis qui consequuntur nostrum et cupiditate beatae.""",
-            body_style,
-        ),
-        Spacer(1, 12),
-        Paragraph("new content 123.", body_style),
-    ]
-
+    paragraph = Paragraph(data.content, styles["Normal"])
+    story = [paragraph]
+            
     # Function to add page numbers
     def add_page_number(canvas, doc):
         if data.page_number:
