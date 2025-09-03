@@ -2,6 +2,7 @@
 utility-service/
 ├── main.py              # FastAPI entrypoint
 ├── tools/
+|
 │    ├── pdf_generator.py
 │    ├── text_tools.py
 │    ├── data_tools.py
