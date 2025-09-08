@@ -13,47 +13,61 @@ ALIGN_MAP = {
     "left": PP_ALIGN.LEFT,
     "center": PP_ALIGN.CENTER,
     "right": PP_ALIGN.RIGHT,
-    "justify": PP_ALIGN.JUSTIFY
+    "justify": PP_ALIGN.JUSTIFY,
 }
 
+# Base folder for all templates
+TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+
+
+def load_template(template_name: str | None) -> Presentation:
+    """Load a specific template if provided, otherwise return a new blank presentation."""
+    if template_name:
+        template_path = os.path.join(TEMPLATES_DIR, template_name)
+        if os.path.exists(template_path):
+            return Presentation(template_path)
+        else:
+            raise FileNotFoundError(f"Template '{template_name}' not found in {TEMPLATES_DIR}")
+    return Presentation()
+
+
 def generate_ppt(data: dict) -> bytes:
-   
-    # Load template or start new presentation
-    if data.get("template", False) and os.path.exists("template.pptx"):
-        prs = Presentation("template.pptx")
-    else:
-        prs = Presentation()
+ 
+    template_name = data.get("template")
+    prs = load_template(template_name)
 
-    for slide_data in data["slides"]:
-        
-        layout_index = slide_data.get("layout_index", 1)
-        slide_layout = (
-            prs.slide_layouts[layout_index]
-            if layout_index < len(prs.slide_layouts)
-            else prs.slide_layouts[1]
-        )
-        slide = prs.slides.add_slide(slide_layout)
+    for i, slide_data in enumerate(data["slides"]):
+        if i < len(prs.slides):
+            slide = prs.slides[i]
+        else:
+            layout_index = slide_data.get("layout_index", 1)
+            slide_layout = (
+                prs.slide_layouts[layout_index]
+                if layout_index < len(prs.slide_layouts)
+                else prs.slide_layouts[1]
+            )
+            slide = prs.slides.add_slide(slide_layout)
 
-        # Title placeholder
-        if "title" in slide_data:
+        # --- Title ---
+        if "title" in slide_data and slide.shapes.title:
             t = slide_data["title"]
             title_shape = slide.shapes.title
             title_shape.text = t.get("text", "")
+
             if hasattr(title_shape, "text_frame"):
-                run = title_shape.text_frame.paragraphs[0].runs[0]
+                para = title_shape.text_frame.paragraphs[0]
+                run = para.runs[0] if para.runs else para.add_run()
                 run.font.size = Pt(t.get("font_size", 32))
                 run.font.bold = t.get("bold", True)
                 run.font.italic = t.get("italic", False)
                 run.font.color.rgb = RGBColor(*t.get("color", (0, 0, 0)))
-                title_shape.text_frame.paragraphs[0].alignment = ALIGN_MAP.get(
-                    t.get("align", "center"), PP_ALIGN.CENTER
-                )
+                para.alignment = ALIGN_MAP.get(t.get("align", "center"), PP_ALIGN.CENTER)
 
-        # Content placeholder
+        # --- Content ---
         if slide.placeholders and len(slide.placeholders) > 1:
             content_placeholder = slide.placeholders[1]
             tf = content_placeholder.text_frame
-            tf.clear()  # start fresh
+            tf.clear()
 
             for c in slide_data.get("content", []):
                 p = tf.add_paragraph()
@@ -64,12 +78,11 @@ def generate_ppt(data: dict) -> bytes:
                 p.font.color.rgb = RGBColor(*c.get("color", (0, 0, 0)))
                 p.alignment = ALIGN_MAP.get(c.get("align", "left"), PP_ALIGN.LEFT)
 
-    # Save PPTX into memory
+    # Save PPTX to memory
     buffer = io.BytesIO()
     prs.save(buffer)
-    ppt_bytes = buffer.getvalue()
-    buffer.close()
-    return ppt_bytes
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 @router.post("/generate-pptx")
