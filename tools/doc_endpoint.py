@@ -6,63 +6,59 @@ from docx.shared import Inches, Mm, Cm
 from docx.enum.section import WD_ORIENT
 import pypandoc
 from io import BytesIO
+import os
 
-router = APIRouter()
+docx_router = APIRouter()
+
+@docx_router.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 
 class DocxRequest(BaseModel):
     page_size: str = "A4"
     orientation: str = "PORTRAIT"
-    content: str = ""
     filename: str = "generated.docx"
-
+    content: str = ""
 
 def generate_docx(data: DocxRequest) -> BytesIO:
     buffer = BytesIO()
-    doc = Document()
 
-    section = doc.sections[0]
+    # Create a temporary Markdown file
+    temp_md_path = "temp.md"
+    with open(temp_md_path, "w", encoding="utf-8") as f:
+        f.write(data.content)
 
-    # Page size
-    if data.page_size.upper() == "LETTER":
-        section.page_width = Inches(8.5)
-        section.page_height = Inches(11)
-    elif data.page_size.upper() == "LEGAL":
-        section.page_width = Inches(8.5)
-        section.page_height = Inches(14)
-    else:  # default A4
-        section.page_width = Mm(210)
-        section.page_height = Mm(297)
+    # Convert Markdown to DOCX
+    temp_docx_path = "temp.docx"
+    try:
+        pypandoc.convert_file(
+            temp_md_path,
+            to="docx",
+            outputfile=temp_docx_path,
+            extra_args=["--wrap=none"]
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to convert Markdown to DOCX: {str(e)}"
+        )
 
-    # Orientation
-    if data.orientation.upper() == "PORTRAIT":
-        section.orientation = WD_ORIENT.PORTRAIT
-    else:
-        section.orientation = WD_ORIENT.LANDSCAPE
-
-    # Margins
-    section.left_margin = section.right_margin = section.top_margin = section.bottom_margin = Cm(3)
-
-    # Save base doc
-    doc.save("temp.docx")
-
-    # Convert RTF content -> DOCX using pypandoc
-    if data.content:
-        pypandoc.convert_text(data.content, to="docx", format="rtf", outputfile="temp.docx")
-
-    # Load final DOCX into memory
-    with open("temp.docx", "rb") as f:
+    # Load the generated DOCX into memory
+    with open(temp_docx_path, "rb") as f:
         buffer.write(f.read())
+
+    # Clean up temporary files
+    os.remove(temp_md_path)
+    os.remove(temp_docx_path)
 
     buffer.seek(0)
     return buffer
 
-
-@router.post("/generate")
+@docx_router.post("/generate")
 async def create_docx(request: DocxRequest):
     try:
         buffer = generate_docx(request)
-
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

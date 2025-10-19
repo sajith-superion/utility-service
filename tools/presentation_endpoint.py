@@ -1,103 +1,77 @@
-import io
-import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pptx import Presentation
-from pptx.util import Pt
-from pptx.enum.text import PP_ALIGN
-from pptx.dml.color import RGBColor
+from pydantic import BaseModel
+from io import BytesIO
+import pypandoc
+import tempfile
+import os
 
-router = APIRouter()
+pptx_router = APIRouter()
 
-ALIGN_MAP = {
-    "left": PP_ALIGN.LEFT,
-    "center": PP_ALIGN.CENTER,
-    "right": PP_ALIGN.RIGHT,
-    "justify": PP_ALIGN.JUSTIFY,
-}
-
-# Base folder for all templates
-TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+class PptxRequest(BaseModel):
+    
+    filename: str = "slides.pptx"
+    slide_level: int = 2  # Markdown heading level to start new slides
+    content: str = ""
 
 
-def load_template(template_name: str | None) -> Presentation:
-    """Load a specific template if provided, otherwise return a new blank presentation."""
-    if template_name:
-        template_path = os.path.join(TEMPLATES_DIR, template_name)
-        if os.path.exists(template_path):
-            return Presentation(template_path)
-        else:
-            raise FileNotFoundError(f"Template '{template_name}' not found in {TEMPLATES_DIR}")
-    return Presentation()
+def generate_pptx(data: PptxRequest) -> BytesIO:
 
+    buffer = BytesIO()
 
-def generate_ppt(data: dict) -> bytes:
- 
-    template_name = data.get("template")
-    prs = load_template(template_name)
+    # Create temporary input/output files
+    with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as tmp_in:
+        tmp_in.write(data.content.encode("utf-8"))
+        tmp_in.flush()
+        input_path = tmp_in.name
 
-    for i, slide_data in enumerate(data["slides"]):
-        if i < len(prs.slides):
-            slide = prs.slides[i]
-        else:
-            layout_index = slide_data.get("layout_index", 1)
-            slide_layout = (
-                prs.slide_layouts[layout_index]
-                if layout_index < len(prs.slide_layouts)
-                else prs.slide_layouts[1]
-            )
-            slide = prs.slides.add_slide(slide_layout)
+    with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as tmp_out:
+        output_path = tmp_out.name
 
-        # --- Title ---
-        if "title" in slide_data and slide.shapes.title:
-            t = slide_data["title"]
-            title_shape = slide.shapes.title
-            title_shape.text = t.get("text", "")
-
-            if hasattr(title_shape, "text_frame"):
-                para = title_shape.text_frame.paragraphs[0]
-                run = para.runs[0] if para.runs else para.add_run()
-                run.font.size = Pt(t.get("font_size", 32))
-                run.font.bold = t.get("bold", True)
-                run.font.italic = t.get("italic", False)
-                run.font.color.rgb = RGBColor(*t.get("color", (0, 0, 0)))
-                para.alignment = ALIGN_MAP.get(t.get("align", "center"), PP_ALIGN.CENTER)
-
-        # --- Content ---
-        if slide.placeholders and len(slide.placeholders) > 1:
-            content_placeholder = slide.placeholders[1]
-            tf = content_placeholder.text_frame
-            tf.clear()
-
-            for c in slide_data.get("content", []):
-                p = tf.add_paragraph()
-                p.text = c["text"]
-                p.font.size = Pt(c.get("font_size", 20))
-                p.font.bold = c.get("bold", False)
-                p.font.italic = c.get("italic", False)
-                p.font.color.rgb = RGBColor(*c.get("color", (0, 0, 0)))
-                p.alignment = ALIGN_MAP.get(c.get("align", "left"), PP_ALIGN.LEFT)
-
-    # Save PPTX to memory
-    buffer = io.BytesIO()
-    prs.save(buffer)
-    buffer.seek(0)
-    return buffer.getvalue()
-
-
-@router.post("/generate-pptx")
-async def create_pptx(request: dict):
-   
     try:
-        ppt_bytes = generate_ppt(request)
-        buffer = io.BytesIO(ppt_bytes)
+        # Run Pandoc conversion via pypandoc
+        pypandoc.convert_file(
+            input_path,
+            "pptx",
+            outputfile=output_path,
+            extra_args=[f"--slide-level={data.slide_level}"]
+        )
+
+        # Read the generated PPTX into memory
+        with open(output_path, "rb") as f:
+            buffer.write(f.read())
+
+        buffer.seek(0)
+        return buffer
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error during conversion: {str(e)}")
+
+    finally:
+        # Cleanup temp files
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+
+@pptx_router.post("/")
+async def create_pptx(request: PptxRequest):
+    """
+    FastAPI endpoint that receives Markdown and returns a PPTX presentation.
+    """
+    try:
+        buffer = generate_pptx(request)
 
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             headers={
-                "Content-Disposition": f"attachment; filename={request.get('filename', 'generated.pptx')}"
+                "Content-Disposition": f"attachment; filename={request.filename}"
             },
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+
