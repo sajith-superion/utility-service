@@ -18,7 +18,7 @@ class PDFRequest(BaseModel):
 async def health_check():
     return {"status": "healthy"}
 
-@pdf_router.post("/")
+@pdf_router.post("/generate")
 async def generate_pdf(request: PDFRequest):
     try:
         # 1️⃣ Convert Markdown to HTML

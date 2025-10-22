@@ -14,9 +14,9 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-app.include_router(pdf_endpoint.pdf_router, prefix="/api/utility-service/pdf/generate", tags=["PDF"])
-app.include_router(presentation_endpoint.pptx_router, prefix="/api/utility-service/pptx/generate", tags=["PPTX"])
-app.include_router(doc_endpoint.docx_router, prefix="/api/utility-service/docx/generate", tags=["DOCX"])
+app.include_router(pdf_endpoint.pdf_router, prefix="/api/utility-service/pdf", tags=["PDF"])
+app.include_router(presentation_endpoint.pptx_router, prefix="/api/utility-service/pptx", tags=["PPTX"])
+app.include_router(doc_endpoint.docx_router, prefix="/api/utility-service/docx", tags=["DOCX"])
 
 
 @app.get("/")

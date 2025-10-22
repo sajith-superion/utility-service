@@ -59,7 +59,7 @@ def generate_pptx(data: PptxRequest) -> BytesIO:
             os.remove(output_path)
 
 
-@pptx_router.post("/")
+@pptx_router.post("/generate")
 async def create_pptx(request: PptxRequest):
     """
     FastAPI endpoint that receives Markdown and returns a PPTX presentation.
