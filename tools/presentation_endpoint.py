@@ -8,6 +8,10 @@ import os
 
 pptx_router = APIRouter()
 
+@pptx_router.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
 class PptxRequest(BaseModel):
     
     filename: str = "slides.pptx"

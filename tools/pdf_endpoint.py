@@ -6,7 +6,7 @@ from xhtml2pdf import pisa
 from io import BytesIO
 import base64
 
-router = APIRouter()
+pdf_router = APIRouter()
 
 class PDFRequest(BaseModel):
     page_size: str = "A4"
@@ -14,7 +14,11 @@ class PDFRequest(BaseModel):
     filename: str = "generated.pdf"
     content: str = ""
 
-@router.post("/")
+@pdf_router.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+@pdf_router.post("/")
 async def generate_pdf(request: PDFRequest):
     try:
         # 1️⃣ Convert Markdown to HTML
