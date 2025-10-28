@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from markdown import markdown
 from xhtml2pdf import pisa
 from io import BytesIO
-import base64
+from reportlab.lib.pagesizes import A4, LETTER, legal, landscape, portrait
 
 pdf_router = APIRouter()
 
@@ -18,121 +18,65 @@ class PDFRequest(BaseModel):
 async def health_check():
     return {"status": "healthy"}
 
+def get_page_size(size_name: str, orientation: str):
+    PAGE_SIZES = {"A4": A4, "LETTER": LETTER, "LEGAL": legal}
+    size = PAGE_SIZES.get(size_name.upper(), A4)
+    return landscape(size) if orientation.lower() == "landscape" else portrait(size)
+
 @pdf_router.post("/generate")
 async def generate_pdf(request: PDFRequest):
     try:
         # 1️⃣ Convert Markdown to HTML
         html_content = markdown(request.content)
-        
-        # 2️⃣ Create complete HTML template
-        html_template = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                @page {{
-                    size: {request.page_size} {request.orientation};
-                    margin: 2cm;
-                }}
-                body {{
-                    font-family: "DejaVu Sans", "Arial", sans-serif;
-                    font-size: 12pt;
-                    line-height: 1.6;
-                    margin: 0;
-                    padding: 0;
-                }}
-                h1, h2, h3, h4, h5, h6 {{
-                    color: #333;
-                    margin-top: 1em;
-                    margin-bottom: 0.5em;
-                }}
-                h1 {{ font-size: 18pt; }}
-                h2 {{ font-size: 16pt; }}
-                h3 {{ font-size: 14pt; }}
-                code {{
-                    background-color: #f5f5f5;
-                    padding: 2px 4px;
-                    border-radius: 3px;
-                    font-family: "Courier New", monospace;
-                    font-size: 10pt;
-                }}
-                pre {{
-                    background-color: #f8f8f8;
-                    padding: 12px;
-                    border-radius: 5px;
-                    overflow-x: auto;
-                    border-left: 4px solid #4CAF50;
-                    margin: 1em 0;
-                }}
-                pre code {{
-                    background: none;
-                    padding: 0;
-                }}
-                blockquote {{
-                    border-left: 4px solid #ddd;
-                    padding-left: 1em;
-                    margin-left: 0;
-                    color: #666;
-                    font-style: italic;
-                }}
-                table {{
-                    border-collapse: collapse;
-                    width: 100%;
-                    margin: 1em 0;
-                }}
-                th, td {{
-                    border: 1px solid #ddd;
-                    padding: 8px 12px;
-                    text-align: left;
-                }}
-                th {{
-                    background-color: #f2f2f2;
-                    font-weight: bold;
-                }}
-                tr:nth-child(even) {{
-                    background-color: #f9f9f9;
-                }}
-                img {{
-                    max-width: 100%;
-                    height: auto;
-                }}
-                hr {{
-                    border: none;
-                    border-top: 1px solid #ddd;
-                    margin: 2em 0;
-                }}
-            </style>
-        </head>
-        <body>
-            {html_content}
-        </body>
-        </html>
-        """
 
-        # 3️⃣ Create PDF in memory using xhtml2pdf
+        # 2️⃣ Compute page size manually
+        page_size = get_page_size(request.page_size, request.orientation)
+
+        # 3️⃣ Proper XHTML Template
+        html_template = f"""<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+<meta charset="UTF-8" />
+<style>
+    @page {{
+        size: {page_size[0]}pt {page_size[1]}pt;
+        margin: 2cm;
+    }}
+    body {{
+        font-family: "DejaVu Sans", Arial, sans-serif;
+        color: #000;
+        font-size: 12pt;
+        line-height: 1.5;
+    }}
+    h1, h2, h3, h4, h5, h6 {{
+        color: #333;
+    }}
+</style>
+</head>
+<body>
+{html_content}
+</body>
+</html>
+"""
+
+        # 4️⃣ Create PDF in memory
         pdf_buffer = BytesIO()
-        
-        # Convert HTML to PDF
         pisa_status = pisa.CreatePDF(
-            html_template,
+            src=html_template,
             dest=pdf_buffer,
-            encoding='UTF-8'
+            encoding="UTF-8"
         )
-        
-        # Check for errors
+
         if pisa_status.err:
             raise HTTPException(status_code=500, detail="PDF generation failed")
-        
+
         pdf_buffer.seek(0)
 
-        # 4️⃣ Return PDF as streaming response
+        # 5️⃣ Return as streaming response
         return StreamingResponse(
             pdf_buffer,
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename={request.filename}"
-            }
+            headers={"Content-Disposition": f"attachment; filename={request.filename}"}
         )
 
     except Exception as e:

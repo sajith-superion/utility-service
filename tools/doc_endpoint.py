@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from docx import Document
-from docx.shared import Inches, Mm, Cm
+from docx.shared import Mm
 from docx.enum.section import WD_ORIENT
 import pypandoc
 from io import BytesIO
@@ -16,21 +16,33 @@ async def health_check():
 
 
 class DocxRequest(BaseModel):
-    page_size: str = "A4"
-    orientation: str = "PORTRAIT"
+    page_size: str = "A4"          # Options: A4, Letter, Legal
+    orientation: str = "PORTRAIT"  # Options: PORTRAIT, LANDSCAPE
     filename: str = "generated.docx"
     content: str = ""
 
+
+def get_page_dimensions(size_name: str):
+    """Return (width_mm, height_mm) for given page size."""
+    size_name = size_name.upper()
+    if size_name == "LETTER":
+        return (215.9, 279.4)   # 8.5 x 11 inches
+    elif size_name == "LEGAL":
+        return (215.9, 355.6)   # 8.5 x 14 inches
+    else:
+        return (210, 297)       # Default A4
+
+
 def generate_docx(data: DocxRequest) -> BytesIO:
     buffer = BytesIO()
-
-    # Create a temporary Markdown file
     temp_md_path = "temp.md"
+    temp_docx_path = "temp.docx"
+
+    # 1️⃣ Write Markdown to file
     with open(temp_md_path, "w", encoding="utf-8") as f:
         f.write(data.content)
 
-    # Convert Markdown to DOCX
-    temp_docx_path = "temp.docx"
+    # 2️⃣ Convert Markdown → DOCX
     try:
         pypandoc.convert_file(
             temp_md_path,
@@ -39,21 +51,38 @@ def generate_docx(data: DocxRequest) -> BytesIO:
             extra_args=["--wrap=none"]
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to convert Markdown to DOCX: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Pandoc conversion failed: {str(e)}")
 
-    # Load the generated DOCX into memory
-    with open(temp_docx_path, "rb") as f:
-        buffer.write(f.read())
+    # 3️⃣ Open the DOCX and adjust layout
+    document = Document(temp_docx_path)
+    width_mm, height_mm = get_page_dimensions(data.page_size)
 
-    # Clean up temporary files
+    for section in document.sections:
+        if data.orientation.upper() == "LANDSCAPE":
+            section.orientation = WD_ORIENT.LANDSCAPE
+            section.page_width = Mm(height_mm)
+            section.page_height = Mm(width_mm)
+        else:
+            section.orientation = WD_ORIENT.PORTRAIT
+            section.page_width = Mm(width_mm)
+            section.page_height = Mm(height_mm)
+
+        # Optional: set consistent margins
+        section.top_margin = Mm(25)
+        section.bottom_margin = Mm(25)
+        section.left_margin = Mm(25)
+        section.right_margin = Mm(25)
+
+    # 4️⃣ Save modified DOCX to memory
+    document.save(buffer)
+    buffer.seek(0)
+
+    # Cleanup
     os.remove(temp_md_path)
     os.remove(temp_docx_path)
 
-    buffer.seek(0)
     return buffer
+
 
 @docx_router.post("/generate")
 async def create_docx(request: DocxRequest):
